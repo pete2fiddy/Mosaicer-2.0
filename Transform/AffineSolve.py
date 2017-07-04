@@ -3,8 +3,10 @@ import cv2
 import numpy as np
 
 class AffineSolve(AlignSolve):
-    def __init__(self, match_subset, feature_matches):
-        AlignSolve.__init__(self, match_subset, feature_matches)
+    def __init__(self, match_subset, feature_matches, align_mat = None):
+        AlignSolve.__init__(self, match_subset, feature_matches, align_mat)
+
+
 
     def solve_mat(self):
         base_xys_subset, fit_xys_subset = self.match_subset.as_points()
@@ -28,17 +30,18 @@ class AffineSolve(AlignSolve):
         '''fit_shift is reversed because of the flipped X and Y of numpy images.
         (makes more sense to rectify) this here than to save it then do so in
         the stitching process.'''
-        fit_shift = np.asarray(transformed_image_bbox[:2][::-1])
         cv_affine_align_mat[0,2] -= transformed_image_bbox[0]
         cv_affine_align_mat[1,2] -= transformed_image_bbox[1]
         transformed_image = cv2.warpAffine(image, cv_affine_align_mat, transformed_image_bounds, flags = cv2.INTER_LINEAR)
-        return transformed_image, fit_shift
+        return transformed_image
 
     def transform_points(self, points):
         points_to_trans = np.concatenate((points, np.ones((points.shape[0], 1), dtype = np.float)), axis = 1)
         transformed_points = points_to_trans.dot(self.align_mat.T)
         transformed_points = transformed_points[:, :2]
         return transformed_points
+
+
 
     def MATCH_SUBSET_SIZE():
         return 3

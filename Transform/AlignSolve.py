@@ -15,10 +15,18 @@ class AlignSolve(ABC):
 
         feature_matches: All the feature matches of the two images
     '''
-    def __init__(self, match_subset, feature_matches):
+    def __init__(self, match_subset, feature_matches, align_mat = None):
         self.match_subset = match_subset
         self.feature_matches = feature_matches
-        self.align_mat = self.solve_mat()
+        self.align_mat = align_mat if align_mat is not None else self.solve_mat()
+
+    '''
+    forgoes solving for the matrix if it is already given (i.e. when loading an)
+    image and its transformation matrix
+    '''
+    @classmethod
+    def init_with_align_mat(cls, align_mat):
+        return cls(None, None, align_mat = align_mat)
 
     '''
     returns the matrix that transforms the fit image to fit the
@@ -38,9 +46,7 @@ class AlignSolve(ABC):
         pass
 
     '''
-    transforms the inputted image using align mat and returns the shift vector
-    that informs where the transformed image must be placed relative to the base
-    image.
+    transforms the inputted image using align mat.
     '''
     @abstractmethod
     def transform_image(self, image):

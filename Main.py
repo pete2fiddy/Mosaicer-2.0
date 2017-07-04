@@ -2,27 +2,37 @@ from Feature.Matching.ORBMatch import ORBMatch
 from Feature.Matching.FeatureMatches import FeatureMatches
 from Transform.AffineSolve import AffineSolve
 from Toolbox.NamedArgs import NamedArgs
+from Toolbox.ClassArgs import ClassArgs
 from Feature.Matching.Reduction.RANSAC import RANSAC
 import cv2
 from PIL import Image
 import Stitching.ImageStitcher as ImageStitcher
 import Blending.ImageBlender as ImageBlender
+from Mosaic.MultiMosaicer import MultiMosaicer
+from Stitching.SaveStitcher import SaveStitcher
 import timeit
 
 
+'''
+To Do:
+    SaveStitcher seems to run very slow. Fix speed issues.
+
+'''
+
+
+
 mosaic_images_path = "E:/Big DZYNE Files/Mosaicing Data/Mosaic Video/XTEK0025 frames/"#"E:/Big DZYNE Files/Mosaicing Data/Naplate West/"#
-base_image = cv2.resize(cv2.imread(mosaic_images_path + "4497.png"), (1280, 720))
-fit_image = cv2.resize(cv2.imread(mosaic_images_path + "4502.png"), (1280, 720))
+save_path = "E:/Big DZYNE Files/Mosaicing Data/Saved Mosaics/GEO Video Mosaics/2000-200-10.png"
+transformation_save_path = "E:/Big DZYNE Files/Mosaicing Data/Saved Mosaics/Saved Transformations/2000-200-10/"
 start_time = timeit.default_timer()
-orb_match = ORBMatch(base_image, fit_image)
-feature_matches = orb_match.feature_matches
 
-ransac = RANSAC(feature_matches, AffineSolve, NamedArgs(inlier_distance = 5, ransac_confidence = .99999999, inlier_proportion = .2, num_inlier_breakpoint = 100))
-best_align_solve = ransac.fit()
-print("time elapsed: ", timeit.default_timer() - start_time)
-cv_affine_mat = best_align_solve.align_mat[:2, :]
+multi_mosaic_params = NamedArgs(image_path = mosaic_images_path, save_path = transformation_save_path, start_index = 2000, num_images = 200, image_step = 10, image_extension = ".png")
+ransac_params = NamedArgs(inlier_distance = 5, ransac_confidence = .99999999, inlier_proportion = .2, num_inlier_breakpoint = 300)
+align_type_and_params = ClassArgs(ORBMatch)
+#multi_mosaicer = MultiMosaicer(align_type_and_params, AffineSolve, ransac_params, multi_mosaic_params)
+#multi_mosaicer.save_mosaic_transformations()
 
-transformed_image, fit_shift = best_align_solve.transform_image(fit_image)
-base_stitch, fit_stitch = ImageStitcher.stitch_image(base_image, transformed_image, fit_shift)
-blended_image = ImageBlender.paste_blend(base_stitch, fit_stitch)
-Image.fromarray(blended_image).show()
+save_stitcher = SaveStitcher(mosaic_images_path, ".png", transformation_save_path, AffineSolve)
+mosaic_image = save_stitcher.blend(ClassArgs(ImageBlender.feather_blend, window_size = 21))
+Image.fromarray(mosaic_image).show()
+cv2.imwrite(save_path, mosaic_image)
