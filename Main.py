@@ -16,13 +16,18 @@ import timeit
 '''
 To Do:
     SaveStitcher seems to run very slow. Fix speed issues.
+        GammaAdjuster has been optimized. Needs to be cleaned up, and attempt to look for more ways to speed it up
 
+    Reminder: Instead of the way I normally threshold images, try using OpenCV's threshold function instead. Ran much
+    faster in GammaAdjuster when I tried it.
+
+    Fix the fuzzy edges on images blended with feather_blend2
 '''
 
 
-
+start_time = timeit.default_timer()
 mosaic_images_path = "E:/Big DZYNE Files/Mosaicing Data/Mosaic Video/XTEK0025 frames/"#"E:/Big DZYNE Files/Mosaicing Data/Naplate West/"#
-save_path = "E:/Big DZYNE Files/Mosaicing Data/Saved Mosaics/GEO Video Mosaics/2000-200-10.png"
+save_path = "E:/Big DZYNE Files/Mosaicing Data/Saved Mosaics/GEO Video Mosaics/2000-200-10#2.png"
 transformation_save_path = "E:/Big DZYNE Files/Mosaicing Data/Saved Mosaics/Saved Transformations/2000-200-10/"
 start_time = timeit.default_timer()
 
@@ -33,6 +38,7 @@ align_type_and_params = ClassArgs(ORBMatch)
 #multi_mosaicer.save_mosaic_transformations()
 
 save_stitcher = SaveStitcher(mosaic_images_path, ".png", transformation_save_path, AffineSolve)
-mosaic_image = save_stitcher.blend(ClassArgs(ImageBlender.feather_blend, window_size = 21))
+mosaic_image = save_stitcher.blend(ClassArgs(ImageBlender.feather_blend2, window_size = 21))
 Image.fromarray(mosaic_image).show()
+print("total time elapsed: ", timeit.default_timer() - start_time)
 cv2.imwrite(save_path, mosaic_image)

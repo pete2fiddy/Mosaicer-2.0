@@ -5,6 +5,7 @@ from PIL import Image
 import Stitching.ImageStitcher as ImageStitcher
 import Blending.ImageBlender as ImageBlender
 import ImageOp.Brightness.GammaAdjuster as GammaAdjuster
+import timeit
 
 class SaveStitcher:
     '''
@@ -76,15 +77,24 @@ class SaveStitcher:
 
 
             align_solve = self.transform_type.init_with_align_mat(trans_mat)
+            start_time = timeit.default_timer()
             trans_fit_image= align_solve.transform_image(fit_image)
+            print("time taken to transform image: ", timeit.default_timer() - start_time)
+
             fit_bbox_xy = bounded_trans_image_bboxes[i][:2][::-1]
             fit_stitch = np.zeros((mosaic_image.shape), dtype = np.uint8)
+
             fit_stitch[fit_bbox_xy[0] : fit_bbox_xy[0] + trans_fit_image.shape[0], fit_bbox_xy[1] : fit_bbox_xy[1] + trans_fit_image.shape[1]] = trans_fit_image
+
             if i != 1:
+
+                start_time = timeit.default_timer()
                 '''gamma adjust the fit stitch so that its brightness matches the rest of the mosaic'''
                 fit_stitch= GammaAdjuster.gamma_correct_fit_stitch_to_base(mosaic_image, fit_stitch)
+                print("time taken to gamma adjust fit stitch: ", timeit.default_timer() - start_time)
+            start_time = timeit.default_timer()
             mosaic_image = np.uint8(blend_func_and_params.class_type(mosaic_image, fit_stitch, blend_func_and_params))#ImageBlender.paste_blend(np.uint8(mosaic_image),  np.uint8(fit_stitch))
-
+            print("time taken to blend images: ", timeit.default_timer() - start_time)
         return np.uint8(mosaic_image)
 
 
