@@ -22,7 +22,7 @@ class MultiMosaicer:
                              skipped (e.g. every fourth image is mosaiced)
         ["image_path"]: the path to the images that are mosaiced
         ["image_extension"]: the image suffix (e.g. ".png")
-        ["save_path"]: the path to save the images
+        ["save_path"]: the path to save the transformations
     '''
     def init_params(self, mosaic_params):
         self.image_path = mosaic_params["image_path"]

@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 import timeit
 from PIL import Image
+import ImageOp.Crop as Crop
+import ImageOp.Paste as Paste
 
 '''
 issue with all image blends:
@@ -17,6 +19,7 @@ the field is still provided so that the functions can be passed
 and will have the same number of arguments as the other blend
 types'''
 def paste_blend(base_stitch, fit_stitch, blend_params = None):
+    '''needs to be made more efficient with large base images'''
     thresh_fit_stitch = cv2.cvtColor(fit_stitch, cv2.COLOR_RGB2GRAY)
     thresh_base_stitch = cv2.cvtColor(base_stitch, cv2.COLOR_RGB2GRAY)
 
@@ -30,7 +33,11 @@ def paste_blend(base_stitch, fit_stitch, blend_params = None):
     return np.uint8(out_image)
 
 
-def feather_blend2(base_stitch, fit_stitch, blend_params):
+'''
+blend_params arguments:
+    ["window_size"]: the size of the blur window
+'''
+def feather_blend(base_stitch, fit_stitch, blend_params):
     window_size = blend_params["window_size"]
 
     thresh_base = cv2.cvtColor(base_stitch, cv2.COLOR_RGB2GRAY)
@@ -44,15 +51,6 @@ def feather_blend2(base_stitch, fit_stitch, blend_params):
     merged_and_contour = np.zeros((0, 1, 2), dtype = np.int)
     for i in range(0, len(and_contours)):
         merged_and_contour = np.concatenate((merged_and_contour, and_contours[i]), axis = 0)
-    '''
-    or_thresh = np.uint8(255*np.logical_or(thresh_base, thresh_fit).astype(np.int))
-    or_contours = cv2.findContours(or_thresh, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)[1]
-
-    merged_or_contour = np.zeros((0,1,2), dtype = np.int)
-    for i in range(0, len(or_contours)):
-        merged_or_contour = np.concatenate((merged_or_contour, or_contours[i]), axis = 0)
-    or_bbox = np.asarray(cv2.boundingRect(merged_or_contour))
-    '''
 
     fit_contours = cv2.findContours(np.uint8(255*thresh_fit.astype(np.int)), cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)[1]
     merged_fit_contour = np.zeros((0,1,2), dtype = np.int)
@@ -68,130 +66,33 @@ def feather_blend2(base_stitch, fit_stitch, blend_params):
     if margin_fit_bbox[0] + margin_fit_bbox[2] > fit_stitch.shape[1]:
         margin_fit_bbox[2] = fit_stitch.shape[1] - margin_fit_bbox[0]
 
-    fit_to_margin_fit_bounds_response = np.uint8(255*thresh_fit.astype(np.int))[margin_fit_bbox[1] : margin_fit_bbox[1] + margin_fit_bbox[3], margin_fit_bbox[0] : margin_fit_bbox[0] + margin_fit_bbox[2]]
+    fit_to_margin_fit_bounds_response = Crop.crop_image_to_bbox(np.uint8(255*thresh_fit.astype(np.int)), margin_fit_bbox)
+
     '''median blur removes some small holes that are sometimes present in the thresholded fit image'''
     fit_to_margin_fit_bounds_response = cv2.medianBlur(fit_to_margin_fit_bounds_response, 3)
     fit_to_margin_fit_bounds_response = cv2.blur(fit_to_margin_fit_bounds_response, (window_size, window_size))
     fit_to_margin_fit_bounds_response = cv2.threshold(fit_to_margin_fit_bounds_response, 254, 255, cv2.THRESH_BINARY)[1]
     fit_to_margin_fit_bounds_response = cv2.blur(fit_to_margin_fit_bounds_response, (window_size, window_size))
 
-    fit_to_fit_bounds_response = fit_to_margin_fit_bounds_response[(window_size-1)//2 : ((window_size-1)//2) + fit_bbox[3], (window_size - 1)//2 : ((window_size-1)//2) + fit_bbox[2]]
+
+    fit_to_fit_bounds_response = Crop.crop_image_to_bbox(fit_to_margin_fit_bounds_response, np.array([(window_size-1)//2, (window_size-1)//2, fit_bbox[2], fit_bbox[3]]))
+    and_thresh_to_fit_bounds = Crop.crop_image_to_bbox(and_thresh, fit_bbox)
+    base_to_fit_bounds = Crop.crop_image_to_bbox(base_stitch, fit_bbox)
+
+    '''removes the fuzzy edges at places where the images do not intersect.
+    Sometimes removes fuzziness where it is wanted. (not good)'''
+    thresh_base_to_fit_bounds = Crop.crop_image_to_bbox(thresh_base, fit_bbox)
+    not_and_thresh_to_fit_bounds = np.logical_and(np.logical_not(and_thresh_to_fit_bounds.astype(np.bool)), np.logical_not(thresh_base_to_fit_bounds))
+    fit_to_fit_bounds_response[not_and_thresh_to_fit_bounds] = 255
+
     normed_fit_to_fit_bounds_response = (fit_to_fit_bounds_response.astype(np.float32))/255.0
 
-
-    '''
-    and_bbox = np.asarray(cv2.boundingRect(merged_and_contour))
-
-    print("and bbox: ", and_bbox)
-    if and_bbox[2] == 0 or and_bbox[3] == 0:
-        return fit_stitch
-
-    margin_and_bbox = and_bbox.copy()
-    margin_and_bbox[:2] -= (window_size-1)//2
-    margin_and_bbox[2:] += (window_size-1)
-    margin_and_bbox[margin_and_bbox < 0] = 0
-    if margin_and_bbox[0] + margin_and_bbox[2] > fit_stitch.shape[1]:
-        margin_and_bbox[2] = fit_stitch.shape[1] - margin_and_bbox[0]
-    if margin_and_bbox[1] + margin_and_bbox[3] > fit_stitch.shape[0]:
-        margin_and_bbox[3] = fit_stitch.shape[0] - margin_and_bbox[1]
-
-    crop_and_thresh = and_thresh[margin_and_bbox[1] : margin_and_bbox[1] + margin_and_bbox[3], margin_and_bbox[0] : margin_and_bbox[0] + margin_and_bbox[2]]
-
-    crop_fit_response = cv2.blur(crop_and_thresh, (window_size, window_size))
-
-    crop_fit_response = cv2.threshold(crop_fit_response, 254, 255, cv2.THRESH_BINARY)[1]
-    crop_fit_response = cv2.blur(crop_fit_response, (window_size, window_size))
-    crop_fit_response = crop_fit_response.astype(np.float32)/255.0
-    crop_base_response = 1.0 - crop_fit_response
-    Image.fromarray(np.uint8(255*crop_fit_response)).show()
-    fit_response_to_fit_bounds = np.zeros((fit_bbox[3], fit_bbox[2]))
-    crop_fit_response_delta_to_fit_bounds = (and_bbox - fit_bbox)[:2]
-    fit_response_to_fit_bounds[crop_fit_response_delta_to_fit_bounds[1] : crop_fit_response_delta_to_fit_bounds[1] + crop_fit_response.shape[0], crop_fit_response_delta_to_fit_bounds[0] : crop_fit_response_delta_to_fit_bounds[0] + crop_fit_response.shape[1]] = crop_fit_response
-    Image.fromarray(np.uint8(255*fit_response_to_fit_bounds)).show()
-    '''
-    start_time = timeit.default_timer()
-    out_image = base_stitch.copy()#(thresh_base.astype(np.int)[:,:,np.newaxis] * base_stitch)
+    out_image = base_stitch.copy()
     fit_to_fit_bounds = fit_stitch[fit_bbox[1] : fit_bbox[1] + fit_bbox[3], fit_bbox[0] : fit_bbox[0] + fit_bbox[2]]
-    thresh_fit_to_fit_bounds = thresh_fit[fit_bbox[1] : fit_bbox[1] + fit_bbox[3], fit_bbox[0] : fit_bbox[0] + fit_bbox[2]]
-    and_thresh_to_fit_bounds = and_thresh[fit_bbox[1] : fit_bbox[1] + fit_bbox[3], fit_bbox[0] : fit_bbox[0] + fit_bbox[2]]
-    print("time taken to bound images: ", timeit.default_timer() - start_time)
-    start_time = timeit.default_timer()
-    base_to_fit_bounds = base_stitch[fit_bbox[1] : fit_bbox[1] + fit_bbox[3], fit_bbox[0] : fit_bbox[0] + fit_bbox[2]]
+    thresh_fit_to_fit_bounds = Crop.crop_image_to_bbox(thresh_fit, fit_bbox)
+
+
     weighted_fit_to_fit_bounds = np.uint8(normed_fit_to_fit_bounds_response[:,:,np.newaxis] * fit_to_fit_bounds)
     weighted_base_to_fit_bounds = np.uint8( (1.0 - normed_fit_to_fit_bounds_response[:,:,np.newaxis]) * base_to_fit_bounds)
-    #Image.fromarray(np.uint8(weighted_fit_to_fit_bounds + weighted_base_to_fit_bounds)).show()
-    print("time taken to weigh and bound: ", timeit.default_timer() - start_time)
-    out_image[fit_bbox[1] : fit_bbox[1] + fit_bbox[3], fit_bbox[0] : fit_bbox[0] + fit_bbox[2]] = np.uint8( (weighted_fit_to_fit_bounds + weighted_base_to_fit_bounds))# += np.uint8(thresh_fit_to_fit_bounds.astype(np.int)[:,:,np.newaxis] * np.logical_not(and_thresh_to_fit_bounds.astype(np.bool)).astype(np.int)[:,:,np.newaxis] * normed_fit_to_fit_bounds_response[:,:,np.newaxis] * fit_to_fit_bounds)
-
-    '''
-    out_image = base_stitch.copy()
-    normed_base_to_fit_bounds_response = 1.0-normed_fit_to_fit_bounds_response
-    thresh_base_to_fit_bounds = thresh_base[fit_bbox[1] :fit_bbox[1] + fit_bbox[3], fit_bbox[0] : fit_bbox[0] + fit_bbox[2]]
-    base_to_fit_bounds = base_stitch[fit_bbox[1] :fit_bbox[1] + fit_bbox[3], fit_bbox[0] : fit_bbox[0] + fit_bbox[2]]
-    out_image[fit_bbox[1] : fit_bbox[1] + fit_bbox[3], fit_bbox[0] : fit_bbox[0] + fit_bbox[2]] += np.uint8(thresh_base_to_fit_bounds.astype(np.int)[:,:,np.newaxis] * np.logical_not(and_thresh_to_fit_bounds.astype(np.bool)).astype(np.int)[:,:,np.newaxis] * normed_base_to_fit_bounds_response[:,:,np.newaxis] * base_to_fit_bounds)
-    '''
-    return out_image
-
-
-'''
-blend_params arguments:
-    ["window_size"]: the size of the blur window
-'''
-def feather_blend(base_stitch, fit_stitch, blend_params):
-    window_size = blend_params["window_size"]
-    '''creates two threshold images that are white wherever the image is present'''
-    start_time = timeit.default_timer()
-    base_thresh_image = cv2.cvtColor(base_stitch, cv2.COLOR_RGB2GRAY)
-    fit_thresh_image = cv2.cvtColor(fit_stitch, cv2.COLOR_RGB2GRAY)
-    base_thresh_image = cv2.threshold(base_thresh_image, 0, 255, cv2.THRESH_BINARY)[1]
-    fit_thresh_image = cv2.threshold(fit_thresh_image, 0, 255, cv2.THRESH_BINARY)[1]
-
-    #both_thresh_image = 255*np.logical_or(base_thresh_image.astype(np.bool), fit_thresh_image.astype(np.bool)).astype(np.int)
-    #Image.fromarray(both_thresh_image).show()
-
-    print("time taken to 1st threshold images: ", timeit.default_timer() - start_time)
-    window = (window_size, window_size)
-    '''
-    holds the response of the fit image to the feather blend. Each pixel
-    represents how much weight the "vote" from the fit image has in the
-    color chosen for feathering.
-
-    A similar image is created for the base image
-    '''
-    start_time = timeit.default_timer()
-    fit_response_image = cv2.blur(fit_thresh_image, window)
-    '''blurring the threshold image will just extend the bounds where the
-    threshold image is white. What the below does is shrink the threshold
-    image so that, when blurred once more, the edge of the blurred portions
-    will align with the original threshold image'''
-    fit_response_image = cv2.threshold(fit_response_image, 254, 255, cv2.THRESH_BINARY)[1]
-    fit_response_image = cv2.blur(fit_response_image, window)
-    base_response_image = 255.0 - fit_response_image
-    print("time taken to create response images: ", timeit.default_timer() - start_time)
-    '''normalizes the image for a wheighted sum (the response between)
-    the two images at any given pixel will always sum to 1 (if at least one image
-    is present at that pixel), or 0 (if neither image has a colored pixel at that
-    point)
-    '''
-    start_time = timeit.default_timer()
-    fit_response_image = np.float32(fit_response_image/255.0)
-    '''
-    The below presents "fuzzy edges" where non-intersecting edges would still
-    be feather-blend weighted. However, the below occurs as a result:
-
-    near corners, you can sometimes see an overlap point because of the
-    thresholding process below.
-    '''
-    fit_response_image[base_thresh_image == 0] = 1.0
-    base_response_image = np.float32(base_response_image/255.0)
-    print("time taken to represent responses as floats: ", timeit.default_timer() - start_time)
-    '''
-    performs a weighted addition where, at each pixel, the responses of
-    each image at each pixel are multiplied the color at that pixel and summed.
-    '''
-    start_time = timeit.default_timer()
-    weighted_fit_image = fit_response_image[:,:,np.newaxis] * fit_stitch
-    weighted_base_image = base_response_image[:,:,np.newaxis] * base_stitch
-    out_image = np.uint8(weighted_fit_image + weighted_base_image)
-    print("time taken to perform last part of algo: ", timeit.default_timer() - start_time)
+    out_image = Paste.paste_image_onto_image_at_bbox(out_image, np.uint8( (weighted_fit_to_fit_bounds + weighted_base_to_fit_bounds)), fit_bbox)
     return out_image

@@ -3,81 +3,46 @@ import numpy as np
 from math import log
 from PIL import Image
 import timeit
+import ImageOp.Crop as Crop
+import ImageOp.Paste as Paste
 
 def gamma_correct_fit_stitch_to_base(base_stitch, fit_stitch):
-    '''needs to be cleaned up'''
-    '''takes about .4 seconds to do the below:'''
     bw_base_stitch = cv2.cvtColor(base_stitch, cv2.COLOR_RGB2GRAY)
     bw_fit_stitch = cv2.cvtColor(fit_stitch, cv2.COLOR_RGB2GRAY)
-    thresh_base_stitch = np.zeros(bw_base_stitch.shape)
-    thresh_fit_stitch = np.zeros(bw_fit_stitch.shape)
-
     thresh_base_stitch = cv2.threshold(bw_base_stitch, 0, 255, cv2.THRESH_BINARY)[1]
     thresh_fit_stitch = cv2.threshold(bw_fit_stitch, 0, 255, cv2.THRESH_BINARY)[1]
+    stitch_union = np.uint8(255*np.logical_and(thresh_base_stitch.astype(np.bool), thresh_fit_stitch.astype(np.bool)).astype(np.int))
 
-    fit_stitch_contour = cv2.findContours(thresh_fit_stitch.astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)[1]
-    fit_stitch_contour.sort(key = lambda contour: len(contour), reverse = True)
-    fit_stitch_contour = fit_stitch_contour[0]
+    stitch_union_contours = cv2.findContours(stitch_union, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)[1]
+    merged_stitch_union_contour = np.zeros((0,1,2), dtype = np.int)
+    for i in range(0, len(stitch_union_contours)):
+        merged_stitch_union_contour = np.concatenate((merged_stitch_union_contour, stitch_union_contours[i]), axis = 0)
+    merged_stitch_union_contour = merged_stitch_union_contour[:,0,:]
 
-    thresh_base_stitch = thresh_base_stitch.astype(np.bool)
-    thresh_fit_stitch = thresh_fit_stitch.astype(np.bool)
+    print("merged stitch union contour: ", merged_stitch_union_contour)
+    '''To add:
+    rather than using the bounding box of the contour, could just use the
+    points in the contouras indices to average over'''
+    #stitch_union_bbox = np.asarray(cv2.boundingRect(merged_stitch_union_contour))
+    #bw_base_to_union_bounds = Crop.crop_image_to_bbox(bw_base_stitch, stitch_union_bbox)
+    #bw_fit_to_union_bounds = Crop.crop_image_to_bbox(bw_fit_stitch, stitch_union_bbox)
 
-    '''stitch_union isa thresholded image that is white where the two stitches
-    overlap'''
-    '''runs a little slow but likely not the issue'''
-    stitch_union = np.uint8(255*np.logical_and(thresh_base_stitch, thresh_fit_stitch).astype(np.int))\
+    '''takes the average non-black gray value for both images'''
+    #avg_base_grayval = np.average(bw_base_to_union_bounds, axis = (0,1)) * (bw_base_to_union_bounds.shape[0] * bw_base_to_union_bounds.shape[1])/float(merged_stitch_union_contour.shape[0])
+    avg_base_grayval = np.average(bw_base_stitch[merged_stitch_union_contour[:, 1], merged_stitch_union_contour[:, 0]])
+    #avg_fit_grayval = np.average(bw_fit_to_union_bounds, axis = (0,1)) * (bw_fit_to_union_bounds.shape[0] * bw_fit_to_union_bounds.shape[1])/float(merged_stitch_union_contour.shape[0])
+    avg_fit_grayval = np.average(bw_fit_stitch[merged_stitch_union_contour[:, 1], merged_stitch_union_contour[:, 0]])
+    gamma_adjust = log(avg_base_grayval, avg_fit_grayval)
+    print("gamma adjust: ", gamma_adjust)
 
-    union_contours = cv2.findContours(stitch_union, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)[1]
+    thresh_fit_stitch_contours = cv2.findContours(thresh_fit_stitch, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)[1]
+    merged_fit_contour = np.zeros((0,1,2), dtype = np.int)
+    for i in range(0, len(thresh_fit_stitch_contours)):
+        merged_fit_contour = np.concatenate((merged_fit_contour, thresh_fit_stitch_contours[i]), axis = 0)
 
-    '''runs fast'''
-    merged_union_contour = np.zeros((0, 1, 2), dtype = np.int)
-    #print("single contour shape: ", union_contours[0].shape)
-    for i in range(0, len(union_contours)):
-        merged_union_contour = np.concatenate((merged_union_contour, union_contours[i]), axis = 0)
-
-    stitch_union_bbox = cv2.boundingRect(merged_union_contour)
-    #print("merged union contour: ", merged_union_contour)
-    #print("merged union contour shape: ", merged_union_contour.shape)
-    #print("union contours: ", union_contours)
-    #print("union contours shape: ", len(union_contours))
-    '''runs fast'''
-    old_fit_stitch = fit_stitch.copy()
-    old_base_stitch = base_stitch.copy()
-
-
-    '''runs fast'''
-    fit_stitch = fit_stitch[stitch_union_bbox[1]: stitch_union_bbox[1] + stitch_union_bbox[3], stitch_union_bbox[0] : stitch_union_bbox[0] + stitch_union_bbox[2]]
-    base_stitch = base_stitch[stitch_union_bbox[1]: stitch_union_bbox[1] + stitch_union_bbox[3], stitch_union_bbox[0] : stitch_union_bbox[0] + stitch_union_bbox[2]]
-    stitch_union = stitch_union[stitch_union_bbox[1]: stitch_union_bbox[1] + stitch_union_bbox[3], stitch_union_bbox[0] : stitch_union_bbox[0] + stitch_union_bbox[2]]
-    bw_base_stitch = bw_base_stitch[stitch_union_bbox[1]: stitch_union_bbox[1] + stitch_union_bbox[3], stitch_union_bbox[0] : stitch_union_bbox[0] + stitch_union_bbox[2]]
-    bw_fit_stitch = bw_fit_stitch[stitch_union_bbox[1]: stitch_union_bbox[1] + stitch_union_bbox[3], stitch_union_bbox[0] : stitch_union_bbox[0] + stitch_union_bbox[2]]
-
-
-    '''the below two images hold the parts of the fit and base image that intersect
-    each other, with the rest of the image removed. They are converted to grayscale'''
-    fit_intersection_image = bw_fit_stitch#cv2.cvtColor(fit_stitch, cv2.COLOR_RGB2GRAY)
-    base_intersection_image = bw_base_stitch#cv2.cvtColor(base_stitch, cv2.COLOR_RGB2GRAY)
-    fit_intersection_image[stitch_union < 1] = 0
-    base_intersection_image[stitch_union < 1] = 0
-    fit_intersection_image = fit_intersection_image.astype(np.float32)/255.0
-    base_intersection_image = base_intersection_image.astype(np.float32)/255.0
-
-    '''both take the mean intensity of all non-black pixels'''
-    '''runs fast'''
-
-    mean_fit_intersection_color = np.average(fit_intersection_image, axis = (0,1)) * (fit_intersection_image.shape[0] * fit_intersection_image.shape[1])/float(merged_union_contour.shape[0])
-    mean_base_intersection_color = np.average(base_intersection_image, axis = (0,1)) * (base_intersection_image.shape[0] * base_intersection_image.shape[1])/float(merged_union_contour.shape[0])
-
-    gamma_adjust = log(mean_base_intersection_color, mean_fit_intersection_color)
-    #out_image = (255*(old_fit_stitch.astype(np.float32)/255.0)**gamma_adjust).astype(np.uint8)
-
-    '''won't work if somehow there is more than one contour in the thresholded image. (Would
-    only occur as a result of bad thresholding, doubt it will ever happen)'''
-
-    fit_stitch_bbox = cv2.boundingRect(fit_stitch_contour)
-    paste_fit_image = old_fit_stitch[fit_stitch_bbox[1] : fit_stitch_bbox[1] + fit_stitch_bbox[3], fit_stitch_bbox[0] : fit_stitch_bbox[0] + fit_stitch_bbox[2]]
-    paste_fit_image =  (255*(paste_fit_image.astype(np.float32)/255.0)**gamma_adjust).astype(np.uint8)
-    out_image = np.zeros(old_fit_stitch.shape, dtype = np.uint8)
-    out_image[fit_stitch_bbox[1] : fit_stitch_bbox[1] + fit_stitch_bbox[3], fit_stitch_bbox[0] : fit_stitch_bbox[0] + fit_stitch_bbox[2]] = paste_fit_image
-
-    return out_image
+    fit_stitch_bbox = np.asarray(cv2.boundingRect(merged_fit_contour))
+    fit_stitch_crop = Crop.crop_image_to_bbox(fit_stitch, fit_stitch_bbox)
+    gamma_adjusted_fit_stitch_crop = (255.0*(fit_stitch_crop.astype(np.float32)/255.0)**gamma_adjust).astype(np.uint8)
+    gamma_adjusted_fit_stitch = np.zeros(fit_stitch.shape, dtype = np.uint8)
+    gamma_adjusted_fit_stitch = Paste.paste_image_onto_image_at_bbox(gamma_adjusted_fit_stitch, gamma_adjusted_fit_stitch_crop, fit_stitch_bbox)
+    return gamma_adjusted_fit_stitch

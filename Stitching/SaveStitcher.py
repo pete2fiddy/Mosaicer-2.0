@@ -6,8 +6,9 @@ import Stitching.ImageStitcher as ImageStitcher
 import Blending.ImageBlender as ImageBlender
 import ImageOp.Brightness.GammaAdjuster as GammaAdjuster
 import timeit
-
-class SaveStitcher:
+import ImageOp.Resize as Resize
+from Stitching.StitchType import StitchType
+class SaveStitcher(StitchType):
     '''
     stitches saved images as well as their transformations to create a full image
     '''
@@ -53,107 +54,24 @@ class SaveStitcher:
         print("self.image_paths: ", len(self.image_paths))
 
 
-    def blend(self, blend_func_and_params):
-        trans_corners = self.get_image_corners()
-        for i in range(1, trans_corners.shape[0]):
-            trans_mat = np.load(self.transformation_paths[i-1])
-            align_solve = self.transform_type.init_with_align_mat(trans_mat)
-            trans_corners[i] = align_solve.transform_points(trans_corners[i])
-        flattened_trans_corners = trans_corners.reshape((trans_corners.shape[0] * 4, 2))
-        trans_corners_bbox = cv2.boundingRect(flattened_trans_corners)
-        mosaic_image = np.zeros((trans_corners_bbox[3], trans_corners_bbox[2], 3), dtype = np.uint8)
-        bounded_trans_corners = trans_corners - np.asarray(trans_corners_bbox[:2])
-
-        bounded_trans_image_bboxes = []
-        for i in range(0, bounded_trans_corners.shape[0]):
-            bounded_trans_image_bboxes.append(cv2.boundingRect(bounded_trans_corners[i]))
+    def blend(self, blend_func_and_params, show_creation_image_size = None):
+        trans_mats = []
+        for i in range(0, len(self.transformation_paths)):
+            trans_mats.append(np.load(self.transformation_paths[i]))
+        image_shapes = []
+        for i in range(0, len(self.image_paths)):
+            image_shapes.append(cv2.imread(self.image_paths[i]).shape)
+        mosaic_shape, bounded_trans_image_bboxes = self.get_mosaic_image_shape_and_bounded_trans_image_bboxes(self.transform_type, trans_mats, image_shapes)
+        mosaic_image = np.zeros(mosaic_shape, dtype = np.uint8)
 
         for i in range(1, len(self.transformation_paths)):
             print("------------------------")
             print("stitching image: ", i)
-            trans_mat = np.load(self.transformation_paths[i-1])
-            fit_image = cv2.imread(self.image_paths[i])
-
-
-
-            align_solve = self.transform_type.init_with_align_mat(trans_mat)
-            start_time = timeit.default_timer()
-            trans_fit_image= align_solve.transform_image(fit_image)
-            print("time taken to transform image: ", timeit.default_timer() - start_time)
-
-            fit_bbox_xy = bounded_trans_image_bboxes[i][:2][::-1]
-            fit_stitch = np.zeros((mosaic_image.shape), dtype = np.uint8)
-
-            fit_stitch[fit_bbox_xy[0] : fit_bbox_xy[0] + trans_fit_image.shape[0], fit_bbox_xy[1] : fit_bbox_xy[1] + trans_fit_image.shape[1]] = trans_fit_image
-
-            if i != 1:
-
-                start_time = timeit.default_timer()
-                '''gamma adjust the fit stitch so that its brightness matches the rest of the mosaic'''
-                fit_stitch= GammaAdjuster.gamma_correct_fit_stitch_to_base(mosaic_image, fit_stitch)
-                print("time taken to gamma adjust fit stitch: ", timeit.default_timer() - start_time)
-            start_time = timeit.default_timer()
-            mosaic_image = np.uint8(blend_func_and_params.class_type(mosaic_image, fit_stitch, blend_func_and_params))#ImageBlender.paste_blend(np.uint8(mosaic_image),  np.uint8(fit_stitch))
-            print("time taken to blend images: ", timeit.default_timer() - start_time)
+            trans_mat = trans_mats[i-1]
+            fit_image = cv2.cvtColor(cv2.imread(self.image_paths[i]), cv2.COLOR_BGR2RGB)
+            fit_stitch = self.get_fit_stitch(mosaic_image, fit_image, self.transform_type, trans_mat, bounded_trans_image_bboxes[i]) if i == 1 else self.get_gamma_adjusted_fit_stitch(mosaic_image, fit_image, self.transform_type, trans_mat, bounded_trans_image_bboxes[i])
+            mosaic_image = np.uint8(blend_func_and_params.class_type(mosaic_image, fit_stitch, blend_func_and_params))
+            if show_creation_image_size is not None:
+                cv2.imshow("Mosaic Image", Resize.resize_image_to_constraints(cv2.cvtColor(mosaic_image, cv2.COLOR_RGB2BGR), show_creation_image_size))
+                cv2.waitKey(1)
         return np.uint8(mosaic_image)
-
-
-        '''
-        trans_origins = [np.array([0,0])]
-        corners = self.get_image_corners()
-        trans_corners = []
-        for i in range(0, len(self.transformation_paths)):
-            trans_mat = np.load(self.transformation_paths[i])
-            align_solve = self.transform_type.init_with_align_mat(trans_mat)
-            append_origin = align_solve.transform_points(np.array([np.array([0,0])]))[0]
-            append_trans_corners = align_solve.transform_points(corners[i])
-            trans_origins.append(append_origin)
-            trans_corners.append(append_trans_corners)
-        trans_origins = np.asarray(trans_origins).astype(np.int)
-        print("origins: ", trans_origins)
-        trans_corners = np.asarray(trans_corners)
-        trans_flattened_corners = trans_corners.reshape((len(self.transformation_paths) * 4, 2)).astype(np.int)
-        #corners_bbox = cv2.boundingRect(trans_flattened_corners)
-        print("flattened corners: ", trans_flattened_corners)
-        print("corners shape: ", corners.shape)
-        #print("corners bbox: ", corners_bbox)
-        #trans_origins -= np.array(corners_bbox[:2])
-
-        bounded_origins = np.zeros(trans_origins.shape)
-        for i in range(0, bounded_origins.shape[0]):
-            print("corners sublist: ", trans_flattened_corners[:4*i])
-            corners_bbox = cv2.boundingRect(trans_flattened_corners[:4*i])
-            print("corners bbox: ", corners_bbox)
-            bounded_origins[i] = trans_origins[i] - np.array(corners_bbox[:2])
-
-        bounded_origins = bounded_origins.astype(np.int)
-
-        print("bounded origins: ", bounded_origins)
-
-
-
-        current_mosaic = cv2.imread(self.image_paths[0])
-        for i in range(0, len(self.transformation_paths)):
-            base_image = current_mosaic
-            fit_image = cv2.imread(self.image_paths[i+1])
-            trans_mat = np.load(self.transformation_paths[i])
-
-            align_solve = self.transform_type.init_with_align_mat(trans_mat)
-
-            trans_fit_image, fit_shift = align_solve.transform_image(fit_image)
-            #Image.fromarray(trans_fit_image).show()
-            fit_shift += bounded_origins[i]
-            #fit_shift = np.array([-200,0])
-
-            base_stitch, fit_stitch = ImageStitcher.stitch_image(base_image, trans_fit_image, fit_shift)
-            current_mosaic = ImageBlender.paste_blend(base_stitch, fit_stitch)
-        Image.fromarray(current_mosaic).show()
-        '''
-
-    def get_image_corners(self):
-        corners = []
-        for i in range(0, len(self.image_paths)):
-            image_shape = cv2.imread(self.image_paths[i]).shape
-            append_corners = np.array([np.array([0,0]), np.array([image_shape[1], 0]), np.array([image_shape[1], image_shape[0]]), np.array([0, image_shape[0]])])
-            corners.append(append_corners)
-        return np.asarray(corners)
