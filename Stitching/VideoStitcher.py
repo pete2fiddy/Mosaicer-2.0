@@ -9,7 +9,7 @@ class VideoStitcher(StitchType):
         self.video_mosaicer = video_mosaicer
 
     def blend(self, blend_func_and_params, show_creation_image_size = None):
-        mosaic_shape, bounded_trans_image_bboxes = self.get_mosaic_image_shape_and_bounded_trans_image_bboxes(self.video_mosaicer.align_solve_type, self.video_mosaicer.trans_mats, self.video_mosaicer.image_shapes)
+        mosaic_shape, bounded_trans_image_bboxes, trans_corners_bbox = self.get_mosaic_image_shape_and_bounded_trans_image_bboxes(self.video_mosaicer.align_solve_type, self.video_mosaicer.trans_mats, self.video_mosaicer.image_shapes)
         mosaic_image = np.zeros(mosaic_shape, dtype = np.uint8)
 
         vidcap = cv2.VideoCapture(self.video_mosaicer.video_path)
@@ -37,4 +37,8 @@ class VideoStitcher(StitchType):
             frame_count += 1
             if frame_count > self.video_mosaicer.end_frame:
                 cap_success = False
+        self.midpoints = self.get_image_midpoint_locations_on_mosaic(trans_corners_bbox, image_shapes, self.transform_type, trans_mats)
         return np.uint8(mosaic_image)
+
+    def get_midpoints(self):
+        return self.midpoints

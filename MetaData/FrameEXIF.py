@@ -17,7 +17,7 @@ class FrameEXIF:
     Frame Center Altitude:XXX
     Frame Center Latitude:XXX
     Frame Center Longitude:XXX
-    Gimbal Aximuth:XXX
+    Gimbal Azimuth:XXX
     Gimbal Elevation:XXX
     Hor. FOV:XXX
     Ver. FOV:XXX
@@ -37,11 +37,9 @@ class FrameEXIF:
             next_newline_index = log.find("\n", last_newline_index + 1)
             if next_newline_index != -1:
                 line_sublog = log[last_newline_index + 1: next_newline_index]
-
                 index, val = self.extract_index_and_value(line_sublog)
                 self.exif_dict[index] = val
                 last_newline_index = next_newline_index
-
             else:
                 line_sublog = log[last_newline_index + 1 : ]
                 index, val = self.extract_index_and_value(line_sublog)

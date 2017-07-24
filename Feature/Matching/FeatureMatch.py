@@ -9,7 +9,9 @@ class FeatureMatch:
 
     '''
     assumes that trainIdx matches base_features and queryIdx
-    matches fit_features
+    matches fit_features.
+    
+    May want to put into the FeatureMatches class?
     '''
     @staticmethod
     def cv_matches_to_feature_matches(cv_matches, base_features, fit_features):

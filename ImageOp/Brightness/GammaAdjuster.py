@@ -19,21 +19,10 @@ def gamma_correct_fit_stitch_to_base(base_stitch, fit_stitch):
         merged_stitch_union_contour = np.concatenate((merged_stitch_union_contour, stitch_union_contours[i]), axis = 0)
     merged_stitch_union_contour = merged_stitch_union_contour[:,0,:]
 
-    print("merged stitch union contour: ", merged_stitch_union_contour)
-    '''To add:
-    rather than using the bounding box of the contour, could just use the
-    points in the contouras indices to average over'''
-    #stitch_union_bbox = np.asarray(cv2.boundingRect(merged_stitch_union_contour))
-    #bw_base_to_union_bounds = Crop.crop_image_to_bbox(bw_base_stitch, stitch_union_bbox)
-    #bw_fit_to_union_bounds = Crop.crop_image_to_bbox(bw_fit_stitch, stitch_union_bbox)
-
     '''takes the average non-black gray value for both images'''
-    #avg_base_grayval = np.average(bw_base_to_union_bounds, axis = (0,1)) * (bw_base_to_union_bounds.shape[0] * bw_base_to_union_bounds.shape[1])/float(merged_stitch_union_contour.shape[0])
     avg_base_grayval = np.average(bw_base_stitch[merged_stitch_union_contour[:, 1], merged_stitch_union_contour[:, 0]])
-    #avg_fit_grayval = np.average(bw_fit_to_union_bounds, axis = (0,1)) * (bw_fit_to_union_bounds.shape[0] * bw_fit_to_union_bounds.shape[1])/float(merged_stitch_union_contour.shape[0])
     avg_fit_grayval = np.average(bw_fit_stitch[merged_stitch_union_contour[:, 1], merged_stitch_union_contour[:, 0]])
     gamma_adjust = log(avg_base_grayval, avg_fit_grayval)
-    print("gamma adjust: ", gamma_adjust)
 
     thresh_fit_stitch_contours = cv2.findContours(thresh_fit_stitch, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)[1]
     merged_fit_contour = np.zeros((0,1,2), dtype = np.int)

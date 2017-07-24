@@ -61,7 +61,7 @@ class SaveStitcher(StitchType):
         image_shapes = []
         for i in range(0, len(self.image_paths)):
             image_shapes.append(cv2.imread(self.image_paths[i]).shape)
-        mosaic_shape, bounded_trans_image_bboxes = self.get_mosaic_image_shape_and_bounded_trans_image_bboxes(self.transform_type, trans_mats, image_shapes)
+        mosaic_shape, bounded_trans_image_bboxes, trans_corners_bbox = self.get_mosaic_image_shape_and_bounded_trans_image_bboxes(self.transform_type, trans_mats, image_shapes)
         mosaic_image = np.zeros(mosaic_shape, dtype = np.uint8)
 
         for i in range(1, len(self.transformation_paths)):
@@ -74,4 +74,35 @@ class SaveStitcher(StitchType):
             if show_creation_image_size is not None:
                 cv2.imshow("Mosaic Image", Resize.resize_image_to_constraints(cv2.cvtColor(mosaic_image, cv2.COLOR_RGB2BGR), show_creation_image_size))
                 cv2.waitKey(1)
-        return np.uint8(mosaic_image)
+        mosaic_image = np.uint8(mosaic_image)
+        self.midpoints = self.get_image_midpoint_locations_on_mosaic(trans_corners_bbox, image_shapes, self.transform_type, trans_mats)
+
+
+        return mosaic_image
+
+
+    '''function for testing, will not appear in other stitch types'''
+    def get_stitches(self,blend_func_and_params):
+        trans_mats = []
+        for i in range(0, len(self.transformation_paths)):
+            trans_mats.append(np.load(self.transformation_paths[i]))
+        image_shapes = []
+        for i in range(0, len(self.image_paths)):
+            image_shapes.append(cv2.imread(self.image_paths[i]).shape)
+        mosaic_shape, bounded_trans_image_bboxes, trans_corners_bbox = self.get_mosaic_image_shape_and_bounded_trans_image_bboxes(self.transform_type, trans_mats, image_shapes)
+
+        stitches = []
+        mosaic_image = np.zeros(mosaic_shape, dtype = np.uint8)
+        for i in range(1, len(self.transformation_paths)):
+            print("------------------------")
+            print("stitching image: ", i)
+            trans_mat = trans_mats[i-1]
+            fit_image = cv2.cvtColor(cv2.imread(self.image_paths[i]), cv2.COLOR_BGR2RGB)
+            fit_stitch = self.get_fit_stitch(mosaic_image, fit_image, self.transform_type, trans_mat, bounded_trans_image_bboxes[i]) if i == 1 else self.get_gamma_adjusted_fit_stitch(mosaic_image, fit_image, self.transform_type, trans_mat, bounded_trans_image_bboxes[i])
+            mosaic_image = np.uint8(blend_func_and_params.class_type(mosaic_image, fit_stitch, blend_func_and_params))
+            stitches.append(fit_stitch)
+        return stitches
+
+
+    def get_midpoints(self):
+        return self.midpoints
