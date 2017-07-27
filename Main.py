@@ -32,6 +32,7 @@ from Regression.LinearLOESS import LinearLOESS
 from MotionTrack.OpticalFlow.HornSchunck import TwoFrameHornSchunck2
 #from MotionTrack.OpticalFlow.TVL1Flow import TwoFrameTVL1Three
 from MotionTrack.OpticalFlow.TVL1Flow2 import TVL1Flow2
+import MotionTrack.OpticalFlow.FlowSmooth as FlowSmooth
 
 '''
 To Do:
@@ -119,7 +120,7 @@ Can't just do flow with magnitude of flows for reconstruction -- must be baselin
 #geo_fitter = GEOFitter(mosaic_image, mosaic_midpoints, frame_geos)
 #mosaic_ppm = geo_fitter.ppm
 
-frames_base_path = "C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/Flow Data 2/Urban3/"#"C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/StereoReconstruction/TwoView/Middlebury/Bicycle/"
+frames_base_path = "C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/Flow Data 2/Dimetrodon/"#"C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/StereoReconstruction/TwoView/Middlebury/Bicycle/"
 scale_factor = 1.0
 
 image_size = cv2.imread(frames_base_path + "frame10.png").shape[:2][::-1]
@@ -156,7 +157,7 @@ flow_images = np.asarray(flow_images)
 
 start_time = timeit.default_timer()
 
-tvl1 = TVL1Flow2(bw_base_image, bw_fit_image, smooth_weight = .05, theta = 0.3, time_step = .15)#TwoFrameTVL1Three(bw_base_image, bw_fit_image)
+tvl1 = TVL1Flow2(bw_base_image, bw_fit_image, FlowSmooth.median_blur, NamedArgs(k_size = 5, num_iter = 5), smooth_weight = .1, theta = .3, time_step = .1, pyr_scale_factor = 0.5)#TwoFrameTVL1Three(bw_base_image, bw_fit_image)
 
 '''
 horn_schunck = TwoFrameHornSchunck2(bw_base_image, bw_fit_image, 100.0 , num_iter = 1000)

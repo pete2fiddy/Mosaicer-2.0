@@ -14,12 +14,25 @@ class TVL1Flow2:
     FLOW_GRAD_KERNEL_X = np.array([[-1.0, 1.0]], dtype = np.float32)
     FLOW_GRAD_KERNEL_Y = np.array([[-1.0],
                                    [1.0]], dtype = np.float32)
-    U_MEDIAN_BLUR_KSIZE = 5
-    U_MEDIAN_BLUR_RUN_TIMES = 5
 
-    def __init__(self, frame1, frame2, smooth_weight = 0.15, time_step = 0.25, theta = 0.3, convergence_thresh = 0.01, pyr_scale_factor = 0.5, num_scales = 5, num_warps = 5, max_iter_per_warp = 50):
+    '''U required to be blurred somehow each iteration. Not doing so
+    allows U to tend toward being far too smooth -- adding a large amount
+    of noise to the flows. The result of this noise is obvious when
+    flow images are inspected.'''
+    #U_MEDIAN_BLUR_KSIZE = 5
+    #U_MEDIAN_BLUR_RUN_TIMES = 3
+
+    PYR_GAUSSIAN_K_SIZE = (7,7)
+    PYR_GAUSSIAN_STD_DEV = 0.8
+
+    '''flow_smooth_func is a function that will smooth the flows,
+    flow_smooth_args is a NamedArgs object with the required
+    variable names and values for the smooth func'''
+    def __init__(self, frame1, frame2, flow_smooth_func, flow_smooth_args, smooth_weight = 0.15, time_step = 0.25, theta = 0.3, convergence_thresh = 0.01, pyr_scale_factor = 0.5, num_scales = 5, num_warps = 5, max_iter_per_warp = 20):
         self.frame1 = frame1.astype(np.float32)
         self.frame2 = frame2.astype(np.float32)
+        self.flow_smooth_func = flow_smooth_func
+        self.flow_smooth_args = flow_smooth_args
         self.smooth_weight = smooth_weight
         self.time_step = time_step
         self.theta = theta
@@ -28,7 +41,38 @@ class TVL1Flow2:
         self.num_scales = num_scales
         self.num_warps = num_warps
         self.max_iter_per_warp = max_iter_per_warp
-        self.calc_tvl1_flows(self.frame1, self.frame2)
+        self.calc_flows()
+
+    def calc_flows(self):
+        pyr_frame1 = self.build_pyramid(self.frame1)
+        pyr_frame2 = self.build_pyramid(self.frame2)
+
+        U = np.zeros(self.frame2.shape[:2] + (2,), dtype = np.float32)
+        print("U shape: ", U.shape)
+
+        for pyr_index in range(0, len(pyr_frame1)):
+            down_scale_factor_at_pyr_index = self.pyr_scale_factor**(len(pyr_frame1)-1-pyr_index)
+
+            print('scale factor at pyr index: ', down_scale_factor_at_pyr_index)
+            resized_U_0_in = cv2.resize(U, pyr_frame1[pyr_index].shape[:2][::-1], cv2.INTER_CUBIC) * down_scale_factor_at_pyr_index
+
+            downscaled_U = self.calc_tvl1_flows(pyr_frame1[pyr_index], pyr_frame2[pyr_index], U_0_in = resized_U_0_in)
+
+            up_scale_factor_at_pyr_index = 1.0/down_scale_factor_at_pyr_index
+            print("up scale factor at pyr index: ", up_scale_factor_at_pyr_index)
+            U = cv2.resize(downscaled_U, U.shape[:2][::-1], cv2.INTER_CUBIC) * up_scale_factor_at_pyr_index
+            print("max U: ", np.amax(U))
+        self.flows = U
+
+    def build_pyramid(self, image):
+        pyr = [image]
+        for pyr_iter in range(0, self.num_scales-1):
+            prev_image = pyr[len(pyr)-1]
+            append_image = cv2.GaussianBlur(prev_image, TVL1Flow2.PYR_GAUSSIAN_K_SIZE, TVL1Flow2.PYR_GAUSSIAN_STD_DEV)
+            resize_dims = tuple((np.asarray(prev_image.shape[:2][::-1])*self.pyr_scale_factor).astype(np.int))
+            append_image = cv2.resize(append_image, resize_dims).astype(np.float32)
+            pyr.append(append_image)
+        return list(reversed(pyr))
 
     def calc_tvl1_flows(self, frame1, frame2, U_0_in = None):
         if U_0_in is None:
@@ -48,14 +92,22 @@ class TVL1Flow2:
                 U = self.iterate_U(V, P1, P2)
                 P1, P2 = self.iterate_P(U, P1, P2)
                 cv2.imshow("Flow angle image: ", FlowHelper.calc_flow_angle_image(U))
-                cv2.imshow("Vec image: ", FlowHelper.calc_flow_vector_image(frame1, U))
+                cv2.imshow("Vec image: ", FlowHelper.calc_flow_vector_image(frame2, U))
                 cv2.waitKey(1)
+        return U
 
 
     def solve_V(self, U, U_0, warp_image, warp_image_grads, base_image):
         '''https://gyazo.com/3483064fa84a8d84ec4b116cfc522c26
         where U_fit_scores is p(U,U_0)
-        and warp_image_grad_mags is |grad I1(x+U_0)|'''
+        and warp_image_grad_mags is |grad I1(x+U_0)|
+
+        For some reason, omitting the U added to the threshold operation
+        makes the algorithm function and it otherwise wouldn't. In another
+        place in the paper, the addition is omitted as well...
+
+        '''
+
         warp_image_grad_mags = np.linalg.norm(warp_image_grads, axis = 2)
         U_fit_scores = self.calc_U_fit_scores(U, U_0, warp_image, warp_image_grads, base_image)
 
@@ -95,10 +147,7 @@ class TVL1Flow2:
         add_xy = np.dstack((add_x, add_y))
         '''could try to use LinearLOESS smoothing'''
         U_new = V + add_xy
-        for i in range(0, TVL1Flow2.U_MEDIAN_BLUR_RUN_TIMES):
-            U_blurred_channel1 = cv2.medianBlur(U_new[:,:,0], TVL1Flow2.U_MEDIAN_BLUR_KSIZE)
-            U_blurred_channel2 = cv2.medianBlur(U_new[:,:,1], TVL1Flow2.U_MEDIAN_BLUR_KSIZE)
-            U_new = np.dstack((U_blurred_channel1, U_blurred_channel2))
+        U_new = self.flow_smooth_func(U_new, self.flow_smooth_args)
         return U_new
 
     def iterate_P(self, U, P1, P2):
