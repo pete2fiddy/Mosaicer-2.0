@@ -86,7 +86,7 @@ class MultiResLucasKanade2:
 
         frame2_grad_x = cv2.Scharr(frame2, cv2.CV_32F, 1, 0)
         frame2_grad_y = cv2.Scharr(frame2, cv2.CV_32F, 0, 1)
-        partial_frame2_partial_time = frame2 - frame1
+        partial_frame2_partial_time = frame2.astype(np.float32) - frame1.astype(np.float32)
 
         for x in range(WINDOW_MARGIN, x_flows.shape[1] - WINDOW_MARGIN):
             for y in range(WINDOW_MARGIN, x_flows.shape[0] - WINDOW_MARGIN):

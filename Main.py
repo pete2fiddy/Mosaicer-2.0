@@ -6,6 +6,7 @@ from Toolbox.ClassArgs import ClassArgs
 from Feature.Matching.Reduction.RANSAC import RANSAC
 import cv2
 from PIL import Image
+import os
 import Stitching.ImageStitcher as ImageStitcher
 import Blending.ImageBlender as ImageBlender
 from Mosaic.MultiMosaicer import MultiMosaicer
@@ -27,18 +28,16 @@ from Reconstruct.DistanceTransformReconstructor import DistanceTransformReconstr
 from Feature.Matching.WindowedPCAReduction import WindowedPCAReduction
 from Feature.Matching.FeatureMatch import FeatureMatch
 from Regression.LinearLOESS import LinearLOESS
-from MotionTrack.OpticalFlow import MultiResLucasKanade2
+#from MotionTrack.OpticalFlow import MultiResLucasKanade2
+from MotionTrack.OpticalFlow.HornSchunck import TwoFrameHornSchunck2
+#from MotionTrack.OpticalFlow.TVL1Flow import TwoFrameTVL1Three
+from MotionTrack.OpticalFlow.TVL1Flow2 import TVL1Flow2
+
 '''
 To Do:
     Fix: Gamma Adjustment seems to drift off course as mosaic gets bigger (especially when
     camera rotates)
 '''
-'''
-affine_regress_test = AffineRegressTest((-3, 3), .25, 100)
-affine_regress_test.plot()
-'''
-
-
 
 start_time = timeit.default_timer()
 
@@ -111,12 +110,16 @@ for i in range(0, len(mosaic_midpoint_framenums)):
 
 mosaic_midpoints = np.array(temp_mosaic_midpoints)
 '''
-
+'''optical flow improvements:
+Check out openCV's LTV Dual (something like that)
+look at stereo algorithms.
+Can't just do flow with magnitude of flows for reconstruction -- must be baseline rectified first
+'''
 
 #geo_fitter = GEOFitter(mosaic_image, mosaic_midpoints, frame_geos)
 #mosaic_ppm = geo_fitter.ppm
 
-frames_base_path = "C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/Flow Data 2/Walking/"
+frames_base_path = "C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/Flow Data 2/Urban3/"#"C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/StereoReconstruction/TwoView/Middlebury/Bicycle/"
 scale_factor = 1.0
 
 image_size = cv2.imread(frames_base_path + "frame10.png").shape[:2][::-1]
@@ -125,8 +128,8 @@ image_size = cv2.imread(frames_base_path + "frame10.png").shape[:2][::-1]
 base_image = cv2.imread(frames_base_path + "frame10.png")
 fit_image = cv2.imread(frames_base_path + "frame11.png")
 
-#base_image = cv2.imread("E:/Big DZYNE Files/Mosaicing Data/Mosaic Video/XTEK0025 frames/4500.png")
-#fit_image = cv2.imread("E:/Big DZYNE Files/Mosaicing Data/Mosaic Video/XTEK0025 frames/4501.png")
+#base_image = cv2.imread("E:/Big DZYNE Files/Mosaicing Data/Mosaic Video/XTEK0025 frames/4580.png")
+#fit_image = cv2.imread("E:/Big DZYNE Files/Mosaicing Data/Mosaic Video/XTEK0025 frames/4585.png")
 
 #base_image = cv2.GaussianBlur(base_image, (7,7), 2.0)
 #fit_image = cv2.GaussianBlur(fit_image, (7,7), 2.0)
@@ -140,8 +143,27 @@ bw_fit_image = cv2.cvtColor(fit_image, cv2.COLOR_BGR2GRAY)
 #bw_base_image = cv2.GaussianBlur(bw_base_image, (7,7), 2.0)
 #bw_fit_image = cv2.GaussianBlur(bw_fit_image, (7,7), 2.0)
 
-op_flow = MultiResLucasKanade2(np.array([bw_base_image, bw_fit_image]), 5, scale_factor = 2)
-Image.fromarray(fit_image).show()
+#op_flow = MultiResLucasKanade2(np.array([bw_base_image, bw_fit_image]), 5, scale_factor = 2)
+#Image.fromarray(fit_image).show()
+
+image_path = "C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/Flow Data 2/ToyData/BallBlankBackground/"#"C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/Flow Data 2/Beanbags/"#
+image_names = os.listdir(image_path)
+
+flow_images = []
+for i in range(0, len(image_names)):
+    flow_images.append(cv2.cvtColor(cv2.imread(image_path + image_names[i]), cv2.COLOR_BGR2GRAY))
+flow_images = np.asarray(flow_images)
+
+start_time = timeit.default_timer()
+
+tvl1 = TVL1Flow2(bw_base_image, bw_fit_image, smooth_weight = .05, theta = 0.3, time_step = .15)#TwoFrameTVL1Three(bw_base_image, bw_fit_image)
+
+'''
+horn_schunck = TwoFrameHornSchunck2(bw_base_image, bw_fit_image, 100.0 , num_iter = 1000)
+print("time elapsed: ", timeit.default_timer() - start_time)
+Image.fromarray(horn_schunck.get_flow_angle_image()).show()
+Image.fromarray(horn_schunck.get_flow_vector_image(5)).show()
+'''
 
 '''
 #dist_transform_reconstructor = DistanceTransformReconstructor(base_image, fit_image, 85.6, 1.0)
