@@ -31,9 +31,9 @@ from Regression.LinearLOESS import LinearLOESS
 #from MotionTrack.OpticalFlow import MultiResLucasKanade2
 from MotionTrack.OpticalFlow.HornSchunck import TwoFrameHornSchunck2
 #from MotionTrack.OpticalFlow.TVL1Flow import TwoFrameTVL1Three
-from MotionTrack.OpticalFlow.TVL1Flow2 import TVL1Flow2
+from MotionTrack.OpticalFlow.TVL1Flow3 import TVL1Flow
 import MotionTrack.OpticalFlow.FlowSmooth as FlowSmooth
-
+import MotionTrack.OpticalFlow.FlowHelper as FlowHelper
 '''
 To Do:
     Fix: Gamma Adjustment seems to drift off course as mosaic gets bigger (especially when
@@ -120,7 +120,7 @@ Can't just do flow with magnitude of flows for reconstruction -- must be baselin
 #geo_fitter = GEOFitter(mosaic_image, mosaic_midpoints, frame_geos)
 #mosaic_ppm = geo_fitter.ppm
 
-frames_base_path = "C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/Flow Data 2/Dimetrodon/"#"C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/StereoReconstruction/TwoView/Middlebury/Bicycle/"
+frames_base_path = "C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/Flow Data 2/Walking/"#"C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/StereoReconstruction/TwoView/Middlebury/Cable/"
 scale_factor = 1.0
 
 image_size = cv2.imread(frames_base_path + "frame10.png").shape[:2][::-1]
@@ -141,24 +141,17 @@ fit_image = cv2.resize(fit_image, (int(image_size[0]*scale_factor), int(image_si
 bw_base_image = cv2.cvtColor(base_image, cv2.COLOR_BGR2GRAY)
 bw_fit_image = cv2.cvtColor(fit_image, cv2.COLOR_BGR2GRAY)
 
-#bw_base_image = cv2.GaussianBlur(bw_base_image, (7,7), 2.0)
-#bw_fit_image = cv2.GaussianBlur(bw_fit_image, (7,7), 2.0)
-
-#op_flow = MultiResLucasKanade2(np.array([bw_base_image, bw_fit_image]), 5, scale_factor = 2)
-#Image.fromarray(fit_image).show()
-
-image_path = "C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/Flow Data 2/ToyData/BallBlankBackground/"#"C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/Flow Data 2/Beanbags/"#
-image_names = os.listdir(image_path)
-
-flow_images = []
-for i in range(0, len(image_names)):
-    flow_images.append(cv2.cvtColor(cv2.imread(image_path + image_names[i]), cv2.COLOR_BGR2GRAY))
-flow_images = np.asarray(flow_images)
-
 start_time = timeit.default_timer()
-
-tvl1 = TVL1Flow2(bw_base_image, bw_fit_image, FlowSmooth.median_blur, NamedArgs(k_size = 5, num_iter = 5), smooth_weight = .1, theta = .3, time_step = .1, pyr_scale_factor = 0.5)#TwoFrameTVL1Three(bw_base_image, bw_fit_image)
-
+'''try using scipy's median filter which isn't restricted when using float32's
+https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.medfilt2d.html
+'''
+'''
+PROBLEM: if U not median blurred enough, flow vectors tend toward inf...
+Possibly not handling boundary cases well
+Check to see how U tends toward V
+'''
+tvl1 = TVL1Flow(bw_base_image, bw_fit_image, FlowSmooth.median_blur, NamedArgs(k_size = 3, num_iter = 1), smooth_weight = .5, max_iter_per_warp = 10, theta = 0.3, time_step = .001, pyr_scale_factor = 0.5, num_scales = 5, num_warps = 20, convergence_thresh = 0.000000000001)#TwoFrameTVL1Three(bw_base_image, bw_fit_image)
+Image.fromarray(FlowHelper.calc_flow_angle_image(tvl1.flows)).show()
 '''
 horn_schunck = TwoFrameHornSchunck2(bw_base_image, bw_fit_image, 100.0 , num_iter = 1000)
 print("time elapsed: ", timeit.default_timer() - start_time)
