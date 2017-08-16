@@ -34,6 +34,8 @@ from MotionTrack.OpticalFlow.HornSchunck import TwoFrameHornSchunck2
 from MotionTrack.OpticalFlow.TVL1Flow3 import TVL1Flow
 import MotionTrack.OpticalFlow.FlowSmooth as FlowSmooth
 import MotionTrack.OpticalFlow.FlowHelper as FlowHelper
+from MotionTrack.OpticalFlow.SlidingWindowOpticalFlow import SlidingWindowOpticalFlow
+import ImageOp.Denoising.SmoothMapper as SmoothMapper
 '''
 To Do:
     Fix: Gamma Adjustment seems to drift off course as mosaic gets bigger (especially when
@@ -101,108 +103,45 @@ for i in range(0, mosaic_midpoints.shape[0]):
 print("total time elapsed: ", timeit.default_timer() - start_time)
 print("transform run time: ", transform_run_time)
 print("stitching run time: ", timeit.default_timer() - start_time - transform_run_time)
-#Image.fromarray(mosaic_image).show()
-'''
-mosaic_midpoint_framenums = [frame_start_num + frame_skip*i for i in range(0, num_frames)]
-temp_mosaic_midpoints = []
-for i in range(0, len(mosaic_midpoint_framenums)):
-    if not mosaic_midpoint_framenums[i] in log_extractor.missing_frame_nums:
-        temp_mosaic_midpoints.append(mosaic_midpoints[i])
 
-mosaic_midpoints = np.array(temp_mosaic_midpoints)
 '''
-'''optical flow improvements:
-Check out openCV's LTV Dual (something like that)
-look at stereo algorithms.
 Can't just do flow with magnitude of flows for reconstruction -- must be baseline rectified first
 '''
 
 #geo_fitter = GEOFitter(mosaic_image, mosaic_midpoints, frame_geos)
 #mosaic_ppm = geo_fitter.ppm
 
-frames_base_path = "C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/Flow Data 2/Walking/"#"C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/StereoReconstruction/TwoView/Middlebury/Cable/"
-scale_factor = 1.0
 
-image_size = cv2.imread(frames_base_path + "frame10.png").shape[:2][::-1]
+frames_path = "C:/Users/Peter/Desktop/DZYNE/Git Repos/Mosaicer 2.0/Mosaicer 2.0/Test/Flow Data Sequences/Backyard/"
+image_names = os.listdir(frames_path)
+resize_factor = 1.0
+bw_frames = []
+for i in range(0, len(image_names)):
+    frame = cv2.imread(frames_path + image_names[i])
+    bw_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    resize_dims = tuple((np.array(bw_frame.shape[::-1]) * resize_factor).astype(np.int))
+    resized_bw_frame = cv2.resize(bw_frame, resize_dims)
+    bw_frames.append(resized_bw_frame)
+bw_frames = np.array(bw_frames, dtype = np.float32)
+window_size = 7
+bw_frames = bw_frames[:window_size, :, :]
+flow_class_and_params = ClassArgs(TVL1Flow, flow_smooth_func = FlowSmooth.median_blur, flow_smooth_args = NamedArgs(k_size = 3, num_iter = 1), smooth_weight = 0.5, max_iter_per_warp = 20, theta = 0.3, time_step = .001, pyr_scale_factor = 0.5, num_scales = 5, num_warps = 10, convergence_thresh = 0.000001)
+sliding_window_op_flow = SlidingWindowOpticalFlow(bw_frames, window_size, flow_class_and_params)
+frame_flows = sliding_window_op_flow.frame_flows
+
+for i in range(0, 1):
+    Image.fromarray(FlowHelper.calc_flow_angle_image(frame_flows[i])).show()
 
 
-base_image = cv2.imread(frames_base_path + "frame10.png")
-fit_image = cv2.imread(frames_base_path + "frame11.png")
 
-#base_image = cv2.imread("E:/Big DZYNE Files/Mosaicing Data/Mosaic Video/XTEK0025 frames/4580.png")
-#fit_image = cv2.imread("E:/Big DZYNE Files/Mosaicing Data/Mosaic Video/XTEK0025 frames/4585.png")
-
-#base_image = cv2.GaussianBlur(base_image, (7,7), 2.0)
-#fit_image = cv2.GaussianBlur(fit_image, (7,7), 2.0)
-
-base_image = cv2.resize(base_image, (int(image_size[0]*scale_factor), int(image_size[1]*scale_factor)))
-fit_image = cv2.resize(fit_image, (int(image_size[0]*scale_factor), int(image_size[1]*scale_factor)))
-
-bw_base_image = cv2.cvtColor(base_image, cv2.COLOR_BGR2GRAY)
-bw_fit_image = cv2.cvtColor(fit_image, cv2.COLOR_BGR2GRAY)
-
-start_time = timeit.default_timer()
-'''try using scipy's median filter which isn't restricted when using float32's
-https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.medfilt2d.html
 '''
-'''
-PROBLEM: if U not median blurred enough, flow vectors tend toward inf...
-Possibly not handling boundary cases well
-Check to see how U tends toward V
-'''
-tvl1 = TVL1Flow(bw_base_image, bw_fit_image, FlowSmooth.median_blur, NamedArgs(k_size = 3, num_iter = 1), smooth_weight = .5, max_iter_per_warp = 10, theta = 0.3, time_step = .001, pyr_scale_factor = 0.5, num_scales = 5, num_warps = 20, convergence_thresh = 0.000000000001)#TwoFrameTVL1Three(bw_base_image, bw_fit_image)
+tvl1 = TVL1Flow(bw_base_image, bw_fit_image, NamedArgs(flow_smooth_func = FlowSmooth.median_blur, flow_smooth_args = NamedArgs(k_size = 3, num_iter = 1), smooth_weight = 0.5, max_iter_per_warp = 20, theta = 0.3, time_step = .001, pyr_scale_factor = 0.5, num_scales = 5, num_warps = 10, convergence_thresh = 0.000000000001))#TwoFrameTVL1Three(bw_base_image, bw_fit_image)
 Image.fromarray(FlowHelper.calc_flow_angle_image(tvl1.flows)).show()
 '''
-horn_schunck = TwoFrameHornSchunck2(bw_base_image, bw_fit_image, 100.0 , num_iter = 1000)
-print("time elapsed: ", timeit.default_timer() - start_time)
-Image.fromarray(horn_schunck.get_flow_angle_image()).show()
-Image.fromarray(horn_schunck.get_flow_vector_image(5)).show()
-'''
+
+
 
 '''
-#dist_transform_reconstructor = DistanceTransformReconstructor(base_image, fit_image, 85.6, 1.0)
-
-
-
-window_pca_reduc = WindowedPCAReduction(bw_base_image, bw_fit_image, NamedArgs(window_size = 9, window_step = 5))
-
-
-num_eigenvecs = 20
-
-base_image_projection = window_pca_reduc.project_image(bw_base_image, num_eigenvecs)
-fit_image_projection = window_pca_reduc.project_image(bw_fit_image, num_eigenvecs)
-
-base_kps, base_des = window_pca_reduc.projected_image_to_keypoints_and_descriptors(base_image_projection)
-fit_kps, fit_des = window_pca_reduc.projected_image_to_keypoints_and_descriptors(fit_image_projection)
-
-bf_matcher = cv2.BFMatcher(cv2.NORM_L2, crossCheck = True)
-matches = bf_matcher.match(base_des, fit_des)
-matches.sort(key = lambda match: match.distance)
-match_image = np.zeros((base_image.shape[0], base_image.shape[1] + fit_image.shape[1], 3))
-match_image[:, :base_image.shape[1], :] = base_image
-match_image[:, base_image.shape[1]:, :] = fit_image
-num_best_matches_to_use = 500#len(matches)#60000
-best_matches_subset = matches[:num_best_matches_to_use]
-match_image = cv2.drawMatches(base_image, base_kps, fit_image, fit_kps, best_matches_subset, match_image, flags = cv2.DRAW_MATCHES_FLAGS_NOT_DRAW_SINGLE_POINTS)
-Image.fromarray(match_image).show()
-
-feature_matches = FeatureMatch.cv_matches_to_feature_matches(best_matches_subset, base_kps, fit_kps)
-#print("feature matches: ", feature_matches)
-print("Len feature matches: ", len(feature_matches))
-print("Len kps: ", len(fit_kps))
-
-base_disparity_image = np.zeros(bw_fit_image.shape)
-print("base disparity image shape: ", base_disparity_image.shape)
-base_xys, fit_xys = feature_matches.as_points()
-for i in range(0, len(feature_matches)):
-    dist = np.linalg.norm(base_xys[i] - fit_xys[i])
-    base_pixel = base_xys[i].astype(np.int)
-    base_disparity_image[base_pixel[1], base_pixel[0]] = dist
-#base_disparity_image[base_disparity_image == 0] = np.average(base_disparity_image, axis = None)
-print("min base disparity: ", np.amin(base_disparity_image))
-print("max base disparity: ", np.amax(base_disparity_image))
-Image.fromarray(np.uint8(255*base_disparity_image/np.amax(base_disparity_image))).show()
-
 def image_to_function(image):
     X_out = []
     y_out = []

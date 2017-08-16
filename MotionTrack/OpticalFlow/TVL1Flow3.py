@@ -46,25 +46,30 @@ class TVL1Flow:
     time steps cause it to trigger much easier (as it dictates how much U steps
     between iterations)...
     '''
-
-    '''
-    NEXT: Extend this to multiple frames, try using Baye's theorem with velocity and acceleration between frames
-    Would sort of be like a kalman filter?
-    '''
-    def __init__(self, frame1, frame2, flow_smooth_func, flow_smooth_args, smooth_weight = 0.15, time_step = 0.25, theta = 0.3, convergence_thresh = 0.00001, pyr_scale_factor = 0.5, num_scales = 5, num_warps = 5, max_iter_per_warp = 100):
+    '''params is a NamedArgs object'''
+    def __init__(self, frame1, frame2, params):
         self.frame1 = frame1.astype(np.float32)
         self.frame2 = frame2.astype(np.float32)
-        self.flow_smooth_func = flow_smooth_func
-        self.flow_smooth_args = flow_smooth_args
-        self.smooth_weight = smooth_weight
-        self.time_step = time_step
-        self.theta = theta
-        self.convergence_thresh = convergence_thresh
-        self.pyr_scale_factor = pyr_scale_factor
-        self.num_scales = num_scales
-        self.num_warps = num_warps
-        self.max_iter_per_warp = max_iter_per_warp
+        self.init_params(params)
+
         self.calculate_flows()
+
+
+    def init_params(self, params):
+        '''may want to find a way to pass flow smooth func and flow smooth args in a
+        functionArgs or ClassArgs object'''
+        self.flow_smooth_func = params["flow_smooth_func"]
+        self.flow_smooth_args = params["flow_smooth_args"]
+        self.flow_smooth_func = params["flow_smooth_func"]
+        self.flow_smooth_args = params["flow_smooth_args"]
+        self.smooth_weight = params["smooth_weight"]
+        self.time_step = params["time_step"]
+        self.theta = params["theta"]
+        self.convergence_thresh = params["convergence_thresh"]
+        self.pyr_scale_factor = params["pyr_scale_factor"]
+        self.num_scales = params["num_scales"]
+        self.num_warps = params["num_warps"]
+        self.max_iter_per_warp = params["max_iter_per_warp"]
 
     def calculate_flows(self):
         frame1_pyr = self.build_pyramid(self.frame1)
@@ -180,7 +185,7 @@ class TVL1Flow:
         indices_condition1 = np.where(p_of_U < -self.smooth_weight*self.theta*warp_grad_mags**2)
         indices_condition2 = np.where(p_of_U > self.smooth_weight*self.theta*warp_grad_mags**2)
         indices_condition3 = np.where(np.abs(p_of_U) <= self.smooth_weight*self.theta*warp_grad_mags**2)
-        
+
         V_new = np.zeros(U.shape, dtype = np.float32)
         '''condition must be assigned backwards so that it satisfies an "if else" chain'''
         '''still may crash on zero gradient???'''
